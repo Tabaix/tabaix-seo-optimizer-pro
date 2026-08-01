@@ -34,9 +34,12 @@ class TABAIX_SEO_ImageTight
     const OPT_BACKUP    = 'tabaix_seo_itc_backup_originals';
     const OPT_GEMINI_KEY= 'tabaix_seo_itc_gemini_api_key';
     const OPT_LANGUAGE  = 'tabaix_seo_itc_language';
+    const OPT_TONE      = 'tabaix_seo_itc_tone';
+    const OPT_ALT_FIELDS= 'tabaix_seo_itc_alt_fields'; // JSON array
 
     const API_ENDPOINT  = 'https://imagetight.com/api/compress';
     const QUOTA_URL     = 'https://imagetight.com/api/quota';
+    const STATUS_URL    = 'https://imagetight.com/api/plugin/status';
 
     public static function get_instance()
     {
@@ -278,6 +281,50 @@ class TABAIX_SEO_ImageTight
                             ?>
                         </select>
                         <small style="color:#94A3B8;">Select the language for your AI-generated alt text.</small>
+                    </div>
+
+                    <div class="tss-row" style="margin-top:16px;">
+                        <label class="tss-label" style="color:#7C3AED;">✦ AI Alt Text Tone</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+                            <?php
+                            $saved_tone = get_option(self::OPT_TONE, 'SEO & E-Commerce');
+                            $tones = ['SEO & E-Commerce','Accessibility-First','Product Listing','Blog/Editorial','Minimalist','Formal/Corporate'];
+                            foreach ($tones as $t) {
+                                $active = $saved_tone === $t;
+                                echo '<button type="button" class="tabaix-seo-tone-btn" data-tone="' . esc_attr($t) . '" style="'
+                                    . 'background:' . ($active ? 'linear-gradient(135deg,#6366F1,#8B5CF6)' : '#1E293B') . ';'
+                                    . 'border:1px solid ' . ($active ? 'transparent' : 'rgba(99,102,241,.3)') . ';'
+                                    . 'color:' . ($active ? '#fff' : '#94A3B8') . ';'
+                                    . 'padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;">' . esc_html($t) . '</button>';
+                            }
+                            ?>
+                        </div>
+                        <input type="hidden" id="tabaix-seo-itc-tone" value="<?php echo esc_attr($saved_tone); ?>">
+                    </div>
+
+                    <div class="tss-row" style="margin-top:20px;background:rgba(99,102,241,.05);padding:16px;border-radius:12px;border:1px solid rgba(99,102,241,.2);">
+                        <label class="tss-label" style="color:#818CF8;">✦ Fields to Generate (select what you want)</label>
+                        <p style="font-size:12px;color:#64748B;margin:6px 0 12px;">Only checked fields are sent to Gemini — faster and cheaper API calls.</p>
+                        <?php
+                        $saved_fields_json = get_option(self::OPT_ALT_FIELDS, '["altText","metaTitle","metaDescription","keywords"]');
+                        $saved_fields = json_decode($saved_fields_json, true) ?: ['altText','metaTitle','metaDescription','keywords'];
+                        $available_fields = [
+                            'altText'         => ['icon'=>'♿','label'=>'Alt Text',         'desc'=>'Image alt attribute — accessibility &amp; SEO'],
+                            'caption'         => ['icon'=>'💬','label'=>'Caption',           'desc'=>'Short description displayed under image'],
+                            'title'           => ['icon'=>'🏷️','label'=>'Title',             'desc'=>'Image title tooltip on hover (60 chars)'],
+                            'metaTitle'       => ['icon'=>'📌','label'=>'Meta Title',        'desc'=>'Page SEO title for search engines (60 chars)'],
+                            'metaDescription' => ['icon'=>'📝','label'=>'Meta Description',  'desc'=>'SERP snippet, 120–160 characters'],
+                            'keywords'        => ['icon'=>'🔑','label'=>'Keywords',          'desc'=>'5–8 comma-separated SEO keywords'],
+                        ];
+                        foreach ($available_fields as $fk => $fd) {
+                            $checked = in_array($fk, $saved_fields) ? 'checked' : '';
+                            echo '<label style="display:flex;align-items:flex-start;gap:10px;background:rgba(30,41,59,.6);border:1px solid rgba(71,85,105,.3);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;">'
+                                . '<input type="checkbox" name="tabaix_seo_alt_field[]" value="' . esc_attr($fk) . '" ' . $checked . ' style="margin-top:3px;accent-color:#6366F1;width:15px;height:15px;flex-shrink:0;">'
+                                . '<div><div style="color:#E2E8F0;font-weight:600;font-size:13px;">' . esc_html($fd['icon'] . ' ' . $fd['label']) . '</div>'
+                                . '<div style="color:#64748B;font-size:11px;margin-top:2px;">' . $fd['desc'] . '</div></div>'
+                                . '</label>';
+                        }
+                        ?>
                     </div>
                     <div class="tss-row">
                         <label class="tss-label">Quality (1–100)</label>
@@ -636,6 +683,16 @@ class TABAIX_SEO_ImageTight
         update_option(self::OPT_BACKUP,    (int) wp_unslash($_POST['backup']    ?? 1));
         update_option(self::OPT_GEMINI_KEY, sanitize_text_field(wp_unslash($_POST['gemini_key'] ?? '')));
         update_option(self::OPT_LANGUAGE,  sanitize_text_field(wp_unslash($_POST['language']   ?? 'English')));
+        update_option(self::OPT_TONE,      sanitize_text_field(wp_unslash($_POST['tone']       ?? 'SEO & E-Commerce')));
+
+        // Save selected alt fields as JSON array
+        $raw_fields  = isset($_POST['alt_fields']) && is_array($_POST['alt_fields'])
+            ? array_map('sanitize_key', wp_unslash($_POST['alt_fields']))
+            : ['altText', 'metaTitle', 'metaDescription', 'keywords'];
+        $valid_fields = ['altText','caption','title','metaTitle','metaDescription','keywords'];
+        $clean_fields = array_values(array_intersect($raw_fields, $valid_fields));
+        if (empty($clean_fields)) $clean_fields = ['altText'];
+        update_option(self::OPT_ALT_FIELDS, wp_json_encode($clean_fields));
 
         wp_send_json_success('Settings saved.');
     }
@@ -649,11 +706,22 @@ class TABAIX_SEO_ImageTight
         $api_key = get_option(self::OPT_API_KEY, '');
         if (empty($api_key)) wp_send_json_error('No API key');
 
-        $url      = add_query_arg('api_key', urlencode($api_key), self::QUOTA_URL);
+        // Use the richer /api/plugin/status endpoint
+        $url      = add_query_arg('api_key', urlencode($api_key), self::STATUS_URL);
         $response = wp_remote_get($url, ['timeout' => 10]);
         if (is_wp_error($response)) wp_send_json_error();
 
-        wp_send_json_success(json_decode(wp_remote_retrieve_body($response), true));
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+
+        // Update quota badge with richer info
+        wp_send_json_success([
+            'credits_remaining'   => $data['credits_remaining']   ?? '—',
+            'total_processed'     => $data['total_processed']     ?? 0,
+            'alt_texts_generated' => $data['alt_texts_generated'] ?? 0,
+            'has_gemini_key'      => $data['has_gemini_key']      ?? false,
+            'status'              => $data['status']              ?? 'unknown',
+            'tier'                => $data['tier']                ?? 'free',
+        ]);
     }
 
     // ══════════════════════════════════════════════════════════════════
